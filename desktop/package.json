@@ -1,0 +1,28 @@
+{
+  "name": "nova-ai-desktop",
+  "version": "1.0.0",
+  "description": "Nova AI local-first desktop workspace",
+  "main": "main.cjs",
+  "author": "Nova AI",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.novaai.desktop",
+    "productName": "Nova AI Desktop",
+    "directories": { "output": "release" },
+    "files": ["main.cjs", "preload.cjs", "package.json"],
+    "extraResources": [
+      { "from": "../frontend/dist", "to": "frontend" },
+      { "from": "../backend/dist/nova-api.exe", "to": "backend/nova-api.exe" }
+    ],
+    "win": { "target": ["nsis"], "artifactName": "Nova-AI-Desktop-Setup-${version}.${ext}" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }
+  }
+}
