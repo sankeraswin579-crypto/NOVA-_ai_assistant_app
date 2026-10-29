@@ -12,3 +12,5 @@ backend/nova.db
 backend/*.db
 frontend/.vite/
 .DS_Store
+
+backend/build/
