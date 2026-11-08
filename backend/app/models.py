@@ -34,6 +34,16 @@ class Document(Base):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    chunk_index = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(Text, nullable=False)
+    embedding_model = Column(String(160), nullable=False)
+    document = relationship("Document", backref="chunks")
+
 class AgentRun(Base):
     __tablename__ = "agent_runs"
     id = Column(Integer, primary_key=True, index=True)

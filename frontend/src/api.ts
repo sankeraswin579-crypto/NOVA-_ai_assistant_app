@@ -50,4 +50,54 @@ export async function apiAtBaseUrl<T = any>(base: string, path: string, options:
   }
   return response.json()
 }
+export type AIStreamEvent = {
+  type: string
+  text?: string
+  provider?: string
+  model?: string
+  details?: string
+  conversation_id?: number
+  sources?: { filename: string; chunk: number }[]
+}
+export async function streamApi(
+  path: string,
+  body: unknown,
+  onEvent: (event: AIStreamEvent) => void,
+  baseOverride?: string,
+): Promise<void> {
+  const base = baseOverride || await getApiBaseUrl()
+  const response = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify(body),
+    redirect: 'error',
+  })
+  if (!response.ok) {
+    const raw = await response.text()
+    let message = raw || `Request failed: ${response.status}`
+    try { message = JSON.parse(raw)?.detail || message } catch { /* use response text */ }
+    throw new Error(message)
+  }
+  if (!response.body) throw new Error('The server did not start a streaming response.')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let pending = ''
+  const dispatch = (line: string) => {
+    if (!line.startsWith('data:')) return
+    const event = JSON.parse(line.slice(5).trim()) as AIStreamEvent
+    if (event.type === 'error') throw new Error(event.details || 'AI generation failed.')
+    onEvent(event)
+  }
+  while (true) {
+    const { value, done } = await reader.read()
+    pending += decoder.decode(value, { stream: !done })
+    const lines = pending.split(/\r?\n/)
+    pending = lines.pop() || ''
+    for (const line of lines) dispatch(line)
+    if (done) {
+      if (pending) dispatch(pending)
+      break
+    }
+  }
+}
 export const API = DEFAULT_API

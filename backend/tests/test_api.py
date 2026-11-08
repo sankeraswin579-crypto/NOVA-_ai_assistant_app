@@ -6,6 +6,7 @@ from app.assistant import generate_agent_response, generate_project_proposal, ge
 from app.config import settings
 from app.database import SessionLocal
 from app.models import AgentRun
+from app.ai_engine import AIEngineError, AIResult, engine
 from app.schemas import ChatRequest
 from pydantic import ValidationError
 
@@ -27,7 +28,7 @@ def test_create_and_list_note():
     client.delete(f"/api/notes/{note_id}")
 
 def test_chat_uses_project_context_without_persisting_file_contents(monkeypatch):
-    async def fake_generate_reply(message, history, project_name=None, project_files=None):
+    async def fake_generate_reply(message, history, project_name=None, project_files=None, **kwargs):
         assert project_name == "sample-project"
         assert project_files == [{"path": "src/main.py", "content": "print('private source')"}]
         return "Project-aware answer", "test-model"
@@ -170,29 +171,12 @@ def test_agent_response_uses_local_model_and_marks_context_untrusted(monkeypatch
     monkeypatch.setattr(settings, "ollama_base_url", "http://127.0.0.1:11434")
     captured = {}
 
-    class FakeResponse:
-        def raise_for_status(self):
-            pass
+    async def fake_generate(messages, **kwargs):
+        captured["messages"] = messages
+        captured["kwargs"] = kwargs
+        return AIResult("Plan: inspect the entry point.", "ollama", "test-model")
 
-        def json(self):
-            return {"message": {"content": "Plan: inspect the entry point."}}
-
-    class FakeClient:
-        def __init__(self, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, url, json):
-            captured["url"] = url
-            captured["body"] = json
-            return FakeResponse()
-
-    monkeypatch.setattr("app.assistant.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr(engine, "generate", fake_generate)
     reply = asyncio.run(generate_agent_response(
         "architect",
         "Plan a small refactor",
@@ -200,9 +184,9 @@ def test_agent_response_uses_local_model_and_marks_context_untrusted(monkeypatch
         "Prior review: keep the API stable.",
     ))
     assert reply.startswith("Plan:")
-    assert captured["url"] == "http://127.0.0.1:11434/api/chat"
-    assert "untrusted reference data" in captured["body"]["messages"][0]["content"]
-    assert "Prior review" in captured["body"]["messages"][1]["content"]
+    assert captured["kwargs"] == {"mode": "local-only", "provider": "ollama"}
+    assert "untrusted reference data" in captured["messages"][0]["content"]
+    assert "Prior review" in captured["messages"][1]["content"]
 
 def test_project_proposals_reject_traversal_and_sensitive_paths():
     for path in ("../outside.py", "..\\outside.py", "config/secrets.py", ".env.example"):
@@ -224,30 +208,15 @@ def test_project_proposal_rejects_sensitive_model_output(monkeypatch):
     monkeypatch.setattr(settings, "ollama_model", "test-model")
     monkeypatch.setattr(settings, "ollama_base_url", "http://127.0.0.1:11434")
 
-    class FakeResponse:
-        def raise_for_status(self):
-            pass
+    async def fake_generate(*args, **kwargs):
+        return AIResult(
+            '{"changes":[{"path":"main.py","proposed_content":'
+            '"API_KEY = \\"credential-value\\"","summary":"Update"}]}',
+            "ollama",
+            "test-model",
+        )
 
-        def json(self):
-            return {"message": {"content": (
-                '{"changes":[{"path":"main.py","proposed_content":'
-                '"API_KEY = \\"credential-value\\"","summary":"Update"}]}'
-            )}}
-
-    class FakeClient:
-        def __init__(self, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def post(self, *args, **kwargs):
-            return FakeResponse()
-
-    monkeypatch.setattr("app.assistant.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr(engine, "generate", fake_generate)
     with pytest.raises(ValueError, match="sensitive project values"):
         asyncio.run(generate_project_proposal("Review this file", [
             {"path": "main.py", "content": "print('safe')"},
@@ -280,13 +249,12 @@ def test_test_explanation_requires_local_tools_and_does_not_store_output(monkeyp
 def test_project_context_never_goes_to_a_remote_model_endpoint(monkeypatch):
     monkeypatch.setattr(settings, "ollama_model", "test-model")
     monkeypatch.setattr(settings, "ollama_base_url", "https://models.example")
-    answer, model = asyncio.run(generate_reply(
-        "Explain this file",
-        [],
-        "project",
-        [{"path": "main.py", "content": "private source"}],
-    ))
-    assert model == "offline-fallback"
-    assert "private source" not in answer
+    with pytest.raises(AIEngineError, match="project files were not sent"):
+        asyncio.run(generate_reply(
+            "Explain this file",
+            [],
+            "project",
+            [{"path": "main.py", "content": "private source"}],
+        ))
     with pytest.raises(RuntimeError, match="local Ollama URL"):
         asyncio.run(generate_project_proposal("Change it", [{"path": "main.py", "content": "safe"}]))

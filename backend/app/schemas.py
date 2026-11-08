@@ -28,6 +28,9 @@ class ChatRequest(BaseModel):
     conversation_id: int | None = None
     project_name: str | None = Field(default=None, max_length=255)
     project_files: list[ProjectFileContext] = Field(default_factory=list, max_length=8)
+    mode: Literal["local-only", "local-first", "cloud-first"] | None = None
+    provider: Literal["ollama", "gemini", "openai", "groq"] | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=160)
 
     @model_validator(mode="after")
     def validate_project_context(self):
@@ -126,3 +129,12 @@ class NoteOut(BaseModel):
 class DocumentIn(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
     content: str = Field(min_length=1, max_length=500000)
+
+class WriterRequest(BaseModel):
+    action: Literal["generate", "rewrite", "grammar", "summarize", "expand", "tone", "document-qa"]
+    text: str = Field(min_length=1, max_length=20000)
+    tone: str = Field(default="professional", max_length=80)
+    document_ids: list[int] = Field(default_factory=list, max_length=50)
+    mode: Literal["local-only", "local-first", "cloud-first"] | None = None
+    provider: Literal["ollama", "gemini", "openai", "groq"] | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=160)

@@ -1,22 +1,23 @@
 # Nova AI Desktop
 
-A cinematic dark-mode AI workspace with a React web UI, FastAPI backend, SQLite persistence, optional Ollama local-model integration, and an Electron Windows desktop wrapper.
+A cinematic dark-mode AI workspace with a React web UI, FastAPI backend, SQLite persistence, a multi-provider AI engine, and an Electron Windows desktop wrapper.
 
 ## Features
 - Chat workspace with conversation history persisted in SQLite
-- Local offline assistant fallback (no API key required)
-- Optional local LLM through Ollama (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`)
+- Central AI engine with Ollama, Google Gemini, OpenAI, and Groq provider routing
+- Streaming chat and Writer actions with provider health checks and explicit local/cloud modes
+- Strict local-only default; cloud requests require an explicit mode change
 - Read-only desktop project context for asking Nova questions about selected source files
 - Project explorer with filtered tree, filename/content search, and import-aware local context retrieval
 - AI code-change proposals with per-file review, explicit OS confirmation, stale-file checks, and backups
 - Approved project test runs with bounded output and optional local-model failure explanations
 - Supervised Agent Command Center with Architect, Developer, QA, and Security roles, shared task logs, and per-change approvals
 - Create, search, edit, and delete notes
-- Local document text import (`.txt` and `.md` in this starter)
+- PDF, DOCX, and TXT document extraction, local Ollama embeddings, vector retrieval, and cited Writer answers
 - Web mode and Windows desktop packaging path
 - Health endpoint and basic backend tests
 
-> This is a practical starter/MVP. The offline fallback is a lightweight local assistant, not a large language model. For private, more capable offline answers, install Ollama and download a model.
+Provider credentials are read only by the FastAPI backend from environment variables. They are never entered into or returned to the frontend.
 
 ## Architecture
 - `frontend/`: React + Vite UI
@@ -65,18 +66,40 @@ npm run dev
 ```
 The desktop shell loads the local Vite UI. Keep the backend and Vite dev server running during development.
 
-## 2. Offline mode
-The backend's built-in local fallback works without an internet connection or API key. Chat messages and notes are stored in `backend/nova.db` by default. To use a local LLM:
+## 2. Local AI and privacy modes
+Nova defaults to **Local-only** mode. In this mode, the AI engine only uses a loopback Ollama endpoint and never falls back to a cloud provider. If local Ollama is unavailable or not configured, Nova shows a connection/configuration error instead of returning a canned answer. Chat messages and notes are stored in `backend/nova.db` by default.
+
+To use local chat and document embeddings:
 1. Install Ollama from https://ollama.com/
-2. Download a model, for example: `ollama pull llama3.2:3b`
+2. Download a chat and embedding model:
+```powershell
+ollama pull llama3.2:3b
+ollama pull nomic-embed-text
+```
 3. Start Ollama and configure `backend/.env`:
 ```env
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=llama3.2:3b
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+NOVA_AI_DEFAULT_MODE=local-only
 ```
-4. Restart FastAPI. If Ollama is unavailable, Nova falls back to its offline response engine.
+4. Restart FastAPI. Imported documents are saved even when embeddings are unavailable, but Writer document Q&A requires a local embedding model and will report indexing errors.
 
-## 3. Build the web app
+## 3. Cloud providers
+To enable cloud providers, configure the API host's `backend/.env` with one or more credentials and model names, then restart FastAPI:
+```env
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.0-flash
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+GROQ_API_KEY=
+GROQ_MODEL=llama-3.3-70b-versatile
+```
+In Settings, choose **Local-first** or **Cloud-first** (or select a cloud provider directly). These modes can send prompts and retrieved document excerpts to a cloud provider. **Local-only** prevents cloud requests even if credentials are configured. Provider API keys are never stored in the browser or desktop UI. Use the Settings connection test to check configured providers.
+
+The mode can be set for a backend deployment with `NOVA_AI_DEFAULT_MODE=local-only|local-first|cloud-first`; the desktop user's explicit Settings selection takes precedence for their requests. Project files, project agents, code proposals, and test explanations remain restricted to a loopback API and local Ollama in every mode.
+
+## 4. Build the web app
 Build frontend:
 ```powershell
 cd frontend
@@ -86,7 +109,7 @@ Deploy `frontend/dist` to a static host (e.g. Vercel or Netlify). Deploy the Fas
 
 Important: SQLite on many ephemeral hosting services is not durable. Use a persistent disk or PostgreSQL for production. Configure CORS in `backend/.env` with the exact deployed frontend origin.
 
-## 4. Build a Windows desktop installer
+## 5. Build a Windows desktop installer
 The desktop package can be built using Electron Builder. The production desktop app expects a bundled backend sidecar executable.
 
 ### Build backend sidecar
@@ -126,7 +149,7 @@ The workflow is supervised, not autonomous: generated code remains a proposal un
 ### Prepare an online API deployment
 The API can run as a Docker container on a host that supports persistent volumes. Build from `backend/` and mount a persistent volume at `/data`; set `NOVA_DATABASE_URL=sqlite:////data/nova.db`, `NOVA_CORS_ORIGINS=*`, and optionally `OLLAMA_BASE_URL` / `OLLAMA_MODEL`. `*` permits Electron desktop and hosted web origins; use explicit trusted web origins when you only have a browser client. Configure the host's health check to `GET /api/health`. `backend/Dockerfile` includes the container setup. For a local Windows server, run `scripts/run-online-api.ps1`; use a trusted HTTPS reverse proxy before allowing internet access. These steps prepare the service, but do not provision a cloud account or publish it.
 
-## 5. Tests
+## 6. Tests
 ```powershell
 cd backend
 .\.venv\Scripts\Activate.ps1
@@ -139,7 +162,7 @@ cd desktop
 npm test
 ```
 
-## 6. GitHub
+## 7. GitHub
 ```powershell
 git init
 git add .
@@ -154,4 +177,4 @@ Do not commit `.env`, SQLite database files, virtual environments, `node_modules
 - The local desktop API binds to loopback only.
 - Do not expose the API publicly without authentication, rate limiting, and a production database.
 - The Ollama endpoint is optional and intended for local development.
-- This starter stores imported text locally; it does not yet perform semantic vector search or OCR.
+- Document text and Ollama embeddings are stored in the API's configured SQLite database; OCR and scanned-PDF extraction are not supported.

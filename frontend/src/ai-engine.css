@@ -1,0 +1,22 @@
+.ai-runtime-pill{display:flex;align-items:center;gap:7px;max-width:210px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#111725;color:#a6b5d1;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.local-dot,.cloud-dot{width:6px;height:6px;flex-shrink:0;border-radius:50%;background:#7be3c0;box-shadow:0 0 8px #7be3c080}
+.cloud-dot{background:#c4a5fd;box-shadow:0 0 8px #c4a5fd80}
+.offline-dot{width:6px;height:6px;flex-shrink:0;border-radius:50%;background:#e8a27a;box-shadow:0 0 8px #e8a27a80}
+.ai-settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:2px 0 16px}
+.ai-settings-grid label,.writer-options label{display:flex;flex-direction:column;gap:6px;color:#92a0bb;font-size:9px}
+.ai-settings-grid select,.ai-settings-grid input,.writer-options select,.writer-options input{width:100%;min-width:0;padding:9px 10px;border:1px solid #29344b;border-radius:8px;background:#0a101c;color:#e8efff;font-size:10px;outline:none}
+.ai-settings-grid select:focus,.ai-settings-grid input:focus,.writer-options select:focus,.writer-options input:focus{border-color:#67e8f966}
+.ai-test-row{grid-column:1/-1;display:flex;align-items:center;gap:10px}
+.ai-test-row>span{font-size:9px;color:#8795b0;overflow-wrap:anywhere}
+.ai-test-message{color:#9fe9cf!important}
+.ai-key-note{grid-column:1/-1;margin:0;color:#6f7e99;font-size:9px;line-height:1.55}
+.settings-modal{max-height:min(90vh,820px);overflow-y:auto}
+.writer-options{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:0 0 11px}
+.writer-options label:has(select[multiple]){grid-column:1/-1}
+.writer-options select[multiple]{min-height:74px}
+.writer-options select option{padding:5px}
+.writer-source-list{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:13px;padding-top:12px;border-top:1px solid var(--line)}
+.writer-source-list strong{font-size:9px;color:#8695b0}
+.writer-source-list span{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;color:#aab8d0;font-size:9px}
+.writer-source-list svg{color:var(--cyan)}
+@media(max-width:640px){.ai-runtime-pill{display:none}.ai-settings-grid{grid-template-columns:1fr}.ai-test-row,.ai-key-note{grid-column:auto}.writer-options{grid-template-columns:1fr}.writer-options label:has(select[multiple]){grid-column:auto}}
