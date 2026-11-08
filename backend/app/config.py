@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     cors_origins: str = Field(default="http://localhost:5173,http://127.0.0.1:5173,null", validation_alias="NOVA_CORS_ORIGINS")
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", validation_alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="", validation_alias="OLLAMA_MODEL")
+    local_project_tools: bool = Field(default=False, validation_alias="NOVA_LOCAL_PROJECT_TOOLS")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 settings = Settings()

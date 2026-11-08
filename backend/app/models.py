@@ -33,3 +33,13 @@ class Document(Base):
     filename = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+    id = Column(Integer, primary_key=True, index=True)
+    task = Column(Text, nullable=False)
+    project_name = Column(String(255), nullable=False, default="")
+    status = Column(String(20), nullable=False, default="running")
+    events = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

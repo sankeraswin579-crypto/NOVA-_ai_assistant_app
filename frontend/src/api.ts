@@ -28,10 +28,21 @@ export async function testApiBaseUrl(url: string): Promise<string> {
   if (health?.status !== 'ok') throw new Error('This server did not identify itself as a Nova API.')
   return candidate
 }
+export function isLocalApiBaseUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname
+    return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname)
+  } catch {
+    return false
+  }
+}
 export async function api<T = any>(path: string, options: RequestInit = {}): Promise<T> {
+  const base = await getApiBaseUrl()
+  return apiAtBaseUrl<T>(base, path, options)
+}
+export async function apiAtBaseUrl<T = any>(base: string, path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {})
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
-  const base = await getApiBaseUrl()
   const response = await fetch(`${base}${path}`, { ...options, headers })
   if (!response.ok) {
     const message = await response.text()

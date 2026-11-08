@@ -7,7 +7,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "electron .",
-    "dist": "electron-builder --win nsis"
+    "dist": "electron-builder --win nsis",
+    "test": "node --test"
   },
   "devDependencies": {
     "electron": "^33.2.1",
@@ -17,7 +18,7 @@
     "appId": "com.novaai.desktop",
     "productName": "Nova AI Desktop",
     "directories": { "output": "release" },
-    "files": ["main.cjs", "preload.cjs", "package.json"],
+    "files": ["main.cjs", "preload.cjs", "project-access.cjs", "electron-security.cjs", "package.json"],
     "extraResources": [
       { "from": "../frontend/dist", "to": "frontend" },
       { "from": "../backend/dist/nova-api.exe", "to": "backend/nova-api.exe" }

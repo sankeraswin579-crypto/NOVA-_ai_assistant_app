@@ -6,6 +6,11 @@ A cinematic dark-mode AI workspace with a React web UI, FastAPI backend, SQLite 
 - Chat workspace with conversation history persisted in SQLite
 - Local offline assistant fallback (no API key required)
 - Optional local LLM through Ollama (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`)
+- Read-only desktop project context for asking Nova questions about selected source files
+- Project explorer with filtered tree, filename/content search, and import-aware local context retrieval
+- AI code-change proposals with per-file review, explicit OS confirmation, stale-file checks, and backups
+- Approved project test runs with bounded output and optional local-model failure explanations
+- Supervised Agent Command Center with Architect, Developer, QA, and Security roles, shared task logs, and per-change approvals
 - Create, search, edit, and delete notes
 - Local document text import (`.txt` and `.md` in this starter)
 - Web mode and Windows desktop packaging path
@@ -104,6 +109,20 @@ Deploy the FastAPI backend to a host with persistent storage and HTTPS, then con
 
 The desktop app defaults to its bundled local API. Do not expose the API publicly without authentication and rate limiting; the starter API does not add authentication by itself.
 
+### Work with a local project
+In the desktop app, choose **Project Explorer** or the folder icon in chat and select a folder. The explorer displays supported source/configuration files, searches filenames and contents on-device, previews selected files, and uses local import references to retrieve relevant related files for chat (up to 8 files / 40,000 characters). Common build/dependency folders, lockfiles, environment files, sensitive filenames, symlinks, and likely credential values are excluded or redacted. Project context is sent only to a loopback Nova API and a loopback Ollama endpoint; file contents are not saved to chat history.
+
+Nova starts in read-only mode. To request an AI change, select safe source files, describe the task, and review each before/after proposal. Every file requires its own approval in an operating-system confirmation dialog; Nova verifies the file has not changed and creates a backup under the desktop app's user-data `project-backups` folder before applying it. Sensitive or truncated files cannot be written through proposals.
+
+The Testing Assistant recognizes test scripts/runners from project manifests (currently `npm test`, `python -m pytest -q`, `cargo test`, and `go test ./...`). Choosing **Review & run** opens an OS confirmation showing the exact fixed command. Only those detected commands are available; Nova-generated commands are never executed. Runs have a five-minute timeout, a 1 MB output cap, and receive a minimal environment that excludes credentials and Nova/Ollama configuration. Output is displayed locally. **Ask Nova to explain failure** sends sanitized output and selected safe files only to the loopback Nova API/model; that explanation is not added to chat history.
+
+The desktop shell enables the project-proposal and test-explanation API routes for its bundled loopback backend. If running FastAPI separately for desktop development, set `NOVA_LOCAL_PROJECT_TOOLS=1` in `backend/.env`; these endpoints remain disabled by default and reject non-loopback callers. Keep `OLLAMA_BASE_URL` on a loopback address to use project source with a model. Remote APIs and remote model endpoints are not allowed to receive project context.
+
+### Use the Agent Command Center
+Open **Agent Command Center**, choose a project in Project Explorer, then describe one task. Nova retrieves a bounded set of relevant safe files on-device and coordinates four local-model roles in order: Architect plans, Developer proposes per-file edits, QA reviews the validation plan, and Security reviews the source and proposed code when it fits the review limit. Prior agent results are passed as untrusted context to the next role.
+
+The workflow is supervised, not autonomous: generated code remains a proposal until each file is individually approved in an operating-system dialog, with a backup and stale-file check. QA test commands are offered separately and only run after OS confirmation; output is sanitized before the QA agent receives it. No model-generated shell command is executed. Agent runs and event logs are saved to the local SQLite database; logs may contain agent-written excerpts, but project files are not uploaded as run records. Agent endpoints are disabled unless `NOVA_LOCAL_PROJECT_TOOLS=1` is enabled and accept only local callers/origins; project data is sent only to a loopback Nova API and loopback Ollama model. This MVP runs the four roles sequentially on the configured Ollama model; parallel execution, multi-provider model routing, and automatic retries are not enabled.
+
 ### Prepare an online API deployment
 The API can run as a Docker container on a host that supports persistent volumes. Build from `backend/` and mount a persistent volume at `/data`; set `NOVA_DATABASE_URL=sqlite:////data/nova.db`, `NOVA_CORS_ORIGINS=*`, and optionally `OLLAMA_BASE_URL` / `OLLAMA_MODEL`. `*` permits Electron desktop and hosted web origins; use explicit trusted web origins when you only have a browser client. Configure the host's health check to `GET /api/health`. `backend/Dockerfile` includes the container setup. For a local Windows server, run `scripts/run-online-api.ps1`; use a trusted HTTPS reverse proxy before allowing internet access. These steps prepare the service, but do not provision a cloud account or publish it.
 
@@ -112,6 +131,12 @@ The API can run as a Docker container on a host that supports persistent volumes
 cd backend
 .\.venv\Scripts\Activate.ps1
 pytest -q
+```
+
+Desktop project-access and Electron IPC security tests:
+```powershell
+cd desktop
+npm test
 ```
 
 ## 6. GitHub
