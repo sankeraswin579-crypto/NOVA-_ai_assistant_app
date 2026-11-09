@@ -29,7 +29,7 @@ class ChatRequest(BaseModel):
     project_name: str | None = Field(default=None, max_length=255)
     project_files: list[ProjectFileContext] = Field(default_factory=list, max_length=8)
     mode: Literal["local-only", "local-first", "cloud-first"] | None = None
-    provider: Literal["ollama", "gemini", "openai", "groq"] | None = None
+    provider: Literal["ollama", "gemini", "openai", "groq", "anthropic"] | None = None
     model: str | None = Field(default=None, min_length=1, max_length=160)
 
     @model_validator(mode="after")
@@ -136,5 +136,5 @@ class WriterRequest(BaseModel):
     tone: str = Field(default="professional", max_length=80)
     document_ids: list[int] = Field(default_factory=list, max_length=50)
     mode: Literal["local-only", "local-first", "cloud-first"] | None = None
-    provider: Literal["ollama", "gemini", "openai", "groq"] | None = None
+    provider: Literal["ollama", "gemini", "openai", "groq", "anthropic"] | None = None
     model: str | None = Field(default=None, min_length=1, max_length=160)

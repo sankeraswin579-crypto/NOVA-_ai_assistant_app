@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     groq_api_key: str = Field(default="", validation_alias="GROQ_API_KEY")
     groq_model: str = Field(default="llama-3.3-70b-versatile", validation_alias="GROQ_MODEL")
     groq_base_url: str = Field(default="https://api.groq.com/openai/v1", validation_alias="GROQ_BASE_URL")
+    anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
+    # No default model on purpose: set ANTHROPIC_MODEL to a model your key can use.
+    anthropic_model: str = Field(default="", validation_alias="ANTHROPIC_MODEL")
+    anthropic_base_url: str = Field(default="https://api.anthropic.com", validation_alias="ANTHROPIC_BASE_URL")
+    anthropic_max_tokens: int = Field(default=4096, validation_alias="ANTHROPIC_MAX_TOKENS")
     ai_default_mode: Literal["local-only", "local-first", "cloud-first"] = Field(
         default="local-only", validation_alias="NOVA_AI_DEFAULT_MODE",
     )

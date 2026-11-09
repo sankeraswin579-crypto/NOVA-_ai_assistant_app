@@ -4,7 +4,7 @@ A cinematic dark-mode AI workspace with a React web UI, FastAPI backend, SQLite 
 
 ## Features
 - Chat workspace with conversation history persisted in SQLite
-- Central AI engine with Ollama, Google Gemini, OpenAI, and Groq provider routing
+- Central AI engine with Ollama, Google Gemini, OpenAI, Groq, and Anthropic provider routing, with per-call token usage where the provider reports it
 - Streaming chat and Writer actions with provider health checks and explicit local/cloud modes
 - Strict local-only default; cloud requests require an explicit mode change
 - Read-only desktop project context for asking Nova questions about selected source files
