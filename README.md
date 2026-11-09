@@ -19,6 +19,14 @@ A cinematic dark-mode AI workspace with a React web UI, FastAPI backend, SQLite 
 
 Provider credentials are read only by the FastAPI backend from environment variables. They are never entered into or returned to the frontend.
 
+## Evolution repository
+
+This project also lives as an evolution repository with feature branches, database
+migrations and an additional provider. See [docs/EVOLUTION.md](docs/EVOLUTION.md) for the
+branch model and what changed, [CHANGELOG.md](CHANGELOG.md) for the details, and
+[docs/LOCAL_INTEGRATION.md](docs/LOCAL_INTEGRATION.md) to merge it into an existing local
+install.
+
 ## Architecture
 - `frontend/`: React + Vite UI
 - `backend/`: FastAPI + SQLAlchemy + SQLite
