@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.models import Document
+from app.models import Document, DocumentChunk
 from app.rag import DocumentIngestionError, extract_document_text, index_document, retrieve_context, split_into_chunks
 
 
@@ -63,4 +63,54 @@ def test_indexes_and_retrieves_relevant_document_chunks(monkeypatch):
         sources = asyncio.run(retrieve_context(db, "alpha question"))
         assert sources[0]["filename"] == "alpha.txt"
         assert sources[0]["chunk"] == 1
+    database.dispose()
+
+
+def _test_database():
+    database = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(database)
+    return database, sessionmaker(bind=database)
+
+
+def test_retrieves_when_document_library_exceeds_selection_cap(monkeypatch):
+    """Asking about "all documents" must not fail once the library passes the selection cap."""
+
+    async def fake_embeddings(texts):
+        return [[1.0, 0.0] if "alpha" in text.lower() else [0.0, 1.0] for text in texts]
+
+    monkeypatch.setattr("app.rag.embed_texts", fake_embeddings)
+    monkeypatch.setattr("app.rag.settings.ollama_embedding_model", "test-embed")
+    database, session_factory = _test_database()
+    with session_factory() as db:
+        for index in range(55):
+            db.add(Document(filename=f"note-{index}.txt", content=f"alpha information {index}"))
+        db.commit()
+        sources = asyncio.run(retrieve_context(db, "alpha question"))
+        assert sources
+        assert sources[0]["score"] > 0
+        assert all(source["filename"].startswith("note-") for source in sources)
+    database.dispose()
+
+
+def test_retrieves_when_chunk_count_exceeds_scan_cap(monkeypatch):
+    """A few large documents must still be searchable past the old chunk scan cap."""
+
+    async def fake_embeddings(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr("app.rag.embed_texts", fake_embeddings)
+    monkeypatch.setattr("app.rag.settings.ollama_embedding_model", "test-embed")
+    database, session_factory = _test_database()
+    with session_factory() as db:
+        for index in range(8):
+            db.add(Document(filename=f"large-{index}.txt", content="alpha " * 60000))
+        db.commit()
+        sources = asyncio.run(retrieve_context(db, "alpha question"))
+        assert len(sources) == 5
+        assert all(source["score"] > 0 for source in sources)
+        assert db.query(DocumentChunk).count() > 2000
     database.dispose()
