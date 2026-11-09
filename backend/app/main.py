@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime
 import ipaddress
@@ -22,8 +23,19 @@ from .assistant import (
 from .ai_engine import AIEngineError, ProviderName, engine, provider_status
 from .rag import DocumentIngestionError, extract_document_text, index_document, retrieve_context
 
-ensure_schema()
-app = FastAPI(title="Nova AI API", version="1.0.0", description="Local-first assistant API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize or migrate the database when the API starts."""
+    ensure_schema()
+    yield
+
+
+app = FastAPI(
+    title="Nova AI API",
+    version="1.0.0",
+    description="Local-first assistant API",
+    lifespan=lifespan,
+)
 
 origins = [x.strip() for x in settings.cors_origins.split(",") if x.strip()]
 
