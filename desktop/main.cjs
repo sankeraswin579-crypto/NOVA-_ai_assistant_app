@@ -33,8 +33,12 @@ function loadApiUrl() {
   } catch {}
 }
 
-ipcMain.handle('nova:get-api-url', () => apiUrl)
-ipcMain.handle('nova:set-api-url', async (_event, value) => {
+ipcMain.handle('nova:get-api-url', event => {
+  assertTrustedRenderer(event, mainWindow, isDev, process.resourcesPath)
+  return apiUrl
+})
+ipcMain.handle('nova:set-api-url', async (event, value) => {
+  assertTrustedRenderer(event, mainWindow, isDev, process.resourcesPath)
   const url = typeof value === 'string' ? value.trim().replace(/\/+$/, '') : ''
   let parsed
   try { parsed = new URL(url) } catch { throw new Error('Enter a valid URL starting with http:// or https://') }
