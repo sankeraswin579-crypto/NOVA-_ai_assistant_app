@@ -8,7 +8,7 @@ import httpx
 
 from .config import settings
 
-ProviderName = Literal["ollama", "gemini", "openai", "groq"]
+ProviderName = Literal["ollama", "gemini", "openai", "groq", "anthropic"]
 RoutingMode = Literal["local-only", "local-first", "cloud-first"]
 
 
@@ -38,6 +38,9 @@ class AIResult:
     provider: ProviderName
     model: str
     fallback_from: str | None = None
+    # Token counts as reported by the provider, when it reports them:
+    # {"prompt_tokens": int, "completion_tokens": int}
+    usage: dict | None = None
 
 
 def _is_loopback_url(value: str) -> bool:
@@ -62,11 +65,15 @@ def provider_config(name: ProviderName) -> ProviderConfig:
         )
     if name == "openai":
         return ProviderConfig(name, settings.openai_model, settings.openai_base_url, settings.openai_api_key)
+    if name == "anthropic":
+        return ProviderConfig(
+            name, settings.anthropic_model, settings.anthropic_base_url, settings.anthropic_api_key,
+        )
     return ProviderConfig(name, settings.groq_model, settings.groq_base_url, settings.groq_api_key)
 
 
 def provider_status() -> list[dict]:
-    names: tuple[ProviderName, ...] = ("ollama", "gemini", "openai", "groq")
+    names: tuple[ProviderName, ...] = ("ollama", "gemini", "openai", "groq", "anthropic")
     return [
         {
             "provider": config.name,
@@ -84,9 +91,9 @@ def _provider_order(mode: RoutingMode, preferred: ProviderName | None) -> list[P
             raise AIEngineError("Local-only mode only allows the local Ollama provider.", status_code=422)
         return ["ollama"]
     if mode == "local-first":
-        order: list[ProviderName] = ["ollama", "openai", "gemini", "groq"]
+        order: list[ProviderName] = ["ollama", "openai", "gemini", "groq", "anthropic"]
     else:
-        order = ["openai", "gemini", "groq", "ollama"]
+        order = ["openai", "anthropic", "gemini", "groq", "ollama"]
     if preferred:
         order = [preferred] + [item for item in order if item != preferred]
     return order
@@ -98,6 +105,16 @@ def _normalize_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
         for item in messages
         if item.get("role") in {"system", "user", "assistant"} and isinstance(item.get("content"), str)
     ]
+
+
+def _record_usage(usage: dict | None, prompt_tokens, completion_tokens) -> None:
+    """Copy provider-reported token counts into the caller's sink, ignoring absences."""
+    if usage is None:
+        return
+    if isinstance(prompt_tokens, int) and prompt_tokens >= 0:
+        usage["prompt_tokens"] = prompt_tokens
+    if isinstance(completion_tokens, int) and completion_tokens >= 0:
+        usage["completion_tokens"] = completion_tokens
 
 
 def _provider_error(provider: ProviderName, error: Exception) -> AIEngineError:
@@ -128,6 +145,7 @@ class ProviderAdapter(Protocol):
         config: ProviderConfig,
         model: str,
         messages: list[dict[str, str]],
+        usage: dict | None = None,
     ) -> AsyncIterator[str]: ...
 
     async def check(self, config: ProviderConfig) -> dict: ...
@@ -139,6 +157,7 @@ class OllamaAdapter:
         config: ProviderConfig,
         model: str,
         messages: list[dict[str, str]],
+        usage: dict | None = None,
     ) -> AsyncIterator[str]:
         async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10)) as client:
             async with client.stream(
@@ -153,6 +172,7 @@ class OllamaAdapter:
                     data = json.loads(line)
                     if data.get("error"):
                         raise AIEngineError(f"Ollama: {data['error']}")
+                    _record_usage(usage, data.get("prompt_eval_count"), data.get("eval_count"))
                     text = data.get("message", {}).get("content", "")
                     if text:
                         yield text
@@ -176,6 +196,7 @@ class GeminiAdapter:
         config: ProviderConfig,
         model: str,
         messages: list[dict[str, str]],
+        usage: dict | None = None,
     ) -> AsyncIterator[str]:
         contents = []
         system = []
@@ -203,6 +224,10 @@ class GeminiAdapter:
                     if not line.startswith("data:"):
                         continue
                     data = json.loads(line[5:].strip())
+                    metadata = data.get("usageMetadata") or {}
+                    _record_usage(
+                        usage, metadata.get("promptTokenCount"), metadata.get("candidatesTokenCount"),
+                    )
                     for candidate in data.get("candidates", []):
                         for part in candidate.get("content", {}).get("parts", []):
                             if part.get("text"):
@@ -218,12 +243,100 @@ class GeminiAdapter:
         return {"provider": config.name, "available": True, "message": "Connected."}
 
 
+ANTHROPIC_API_VERSION = "2023-06-01"
+
+
+def _anthropic_payload(model: str, messages: list[dict[str, str]], max_tokens: int) -> dict:
+    """Build an Anthropic Messages request body.
+
+    Anthropic differs from the OpenAI shape: the system prompt is a top-level field, roles
+    are user/assistant only, the turns must alternate, and the conversation must open with
+    a user turn. Consecutive same-role turns are merged and any leading assistant turn is
+    dropped, so a truncated history cannot produce a 400.
+    """
+    system_parts: list[str] = []
+    contents: list[dict[str, str]] = []
+    for item in _normalize_messages(messages):
+        if item["role"] == "system":
+            system_parts.append(item["content"])
+            continue
+        role = "assistant" if item["role"] == "assistant" else "user"
+        if contents and contents[-1]["role"] == role:
+            contents[-1]["content"] += "\n\n" + item["content"]
+        else:
+            contents.append({"role": role, "content": item["content"]})
+    while contents and contents[0]["role"] != "user":
+        contents.pop(0)
+    if not contents:
+        contents = [{"role": "user", "content": "(no message)"}]
+    payload: dict = {"model": model, "max_tokens": max_tokens, "messages": contents, "stream": True}
+    if system_parts:
+        payload["system"] = "\n\n".join(system_parts)
+    return payload
+
+
+class AnthropicAdapter:
+    async def stream(
+        self,
+        config: ProviderConfig,
+        model: str,
+        messages: list[dict[str, str]],
+        usage: dict | None = None,
+    ) -> AsyncIterator[str]:
+        endpoint = f"{config.base_url.rstrip('/')}/v1/messages"
+        headers = {"x-api-key": config.api_key, "anthropic-version": ANTHROPIC_API_VERSION}
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10)) as client:
+            async with client.stream(
+                "POST",
+                endpoint,
+                headers=headers,
+                json=_anthropic_payload(model, messages, settings.anthropic_max_tokens),
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = json.loads(line[5:].strip())
+                    event_type = data.get("type")
+                    if event_type == "error":
+                        detail = (data.get("error") or {}).get("message", "request failed")
+                        raise AIEngineError(f"Anthropic: {detail}")
+                    if event_type == "message_start":
+                        start = (data.get("message") or {}).get("usage") or {}
+                        _record_usage(usage, start.get("input_tokens"), start.get("output_tokens"))
+                    elif event_type == "message_delta":
+                        _record_usage(usage, None, (data.get("usage") or {}).get("output_tokens"))
+                    delta = data.get("delta") or {}
+                    if event_type == "content_block_delta" and delta.get("type") == "text_delta":
+                        text = delta.get("text")
+                        if text:
+                            yield text
+
+    async def check(self, config: ProviderConfig) -> dict:
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.get(
+                f"{config.base_url.rstrip('/')}/v1/models",
+                headers={"x-api-key": config.api_key, "anthropic-version": ANTHROPIC_API_VERSION},
+            )
+            response.raise_for_status()
+        names = [item.get("id") for item in response.json().get("data", [])]
+        available = not names or config.model in names
+        return {
+            "provider": config.name,
+            "available": available,
+            "message": "Connected." if available else (
+                f"Connected, but model '{config.model}' is not available to this API key."
+            ),
+        }
+
+
 class OpenAICompatibleAdapter:
     async def stream(
         self,
         config: ProviderConfig,
         model: str,
         messages: list[dict[str, str]],
+        usage: dict | None = None,
     ) -> AsyncIterator[str]:
         endpoint = f"{config.base_url.rstrip('/')}/chat/completions"
         async with httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10)) as client:
@@ -231,7 +344,14 @@ class OpenAICompatibleAdapter:
                 "POST",
                 endpoint,
                 headers={"Authorization": "Bearer " + config.api_key},
-                json={"model": model, "messages": _normalize_messages(messages), "stream": True},
+                json={
+                    "model": model,
+                    "messages": _normalize_messages(messages),
+                    "stream": True,
+                    # Both OpenAI and Groq report token usage on the final chunk only
+                    # when this option is set.
+                    "stream_options": {"include_usage": True},
+                },
             ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
@@ -241,6 +361,10 @@ class OpenAICompatibleAdapter:
                     if payload == "[DONE]":
                         break
                     data = json.loads(payload)
+                    reported = data.get("usage") or {}
+                    _record_usage(
+                        usage, reported.get("prompt_tokens"), reported.get("completion_tokens"),
+                    )
                     for choice in data.get("choices", []):
                         text = choice.get("delta", {}).get("content")
                         if isinstance(text, str) and text:
@@ -261,6 +385,7 @@ _ADAPTERS: dict[ProviderName, ProviderAdapter] = {
     "gemini": GeminiAdapter(),
     "openai": OpenAICompatibleAdapter(),
     "groq": OpenAICompatibleAdapter(),
+    "anthropic": AnthropicAdapter(),
 }
 
 
@@ -283,12 +408,13 @@ class AIEngine:
             if not config.configured:
                 continue
             selected_model = model.strip() if model and name == provider else config.model
+            usage: dict = {}
             try:
-                async for part in _ADAPTERS[name].stream(config, selected_model, messages):
+                async for part in _ADAPTERS[name].stream(config, selected_model, messages, usage):
                     result += part
                 if not result.strip():
                     raise AIEngineError(f"{name.title()} returned an empty response.")
-                return AIResult(result.strip(), name, selected_model, first_error)
+                return AIResult(result.strip(), name, selected_model, first_error, usage or None)
             except AIEngineError as error:
                 last_error = error
                 if first_error is None:
@@ -334,15 +460,16 @@ class AIEngine:
                 continue
             selected_model = model.strip() if model and name == provider else config.model
             partial = ""
+            usage: dict = {}
             try:
                 yield {"type": "meta", "provider": name, "model": selected_model}
-                async for text in _ADAPTERS[name].stream(config, selected_model, messages):
+                async for text in _ADAPTERS[name].stream(config, selected_model, messages, usage):
                     partial += text
                     yield {"type": "token", "text": text}
                 if partial.strip():
                     if failures:
                         yield {"type": "fallback", "details": failures[0]}
-                    yield {"type": "done"}
+                    yield {"type": "done", "usage": usage or None}
                     return
                 raise AIEngineError(f"{name.title()} returned an empty response.")
             except AIEngineError as error:
