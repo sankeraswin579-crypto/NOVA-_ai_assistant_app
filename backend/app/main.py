@@ -377,6 +377,10 @@ def append_agent_run_event(
     run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
     if not run:
         raise HTTPException(404, "Agent run not found.")
+    # A finished run's log is the audit record of what the agents did. Only an approval
+    # decision may be appended after the run closes; agent activity cannot be rewritten.
+    if run.status != "running" and payload.status != "approval":
+        raise HTTPException(409, "This agent run is already finished; only approval decisions can be appended.")
     events = json.loads(run.events)
     if len(events) >= 80 or sum(len(event["message"]) for event in events) + len(payload.message) > 250000:
         raise HTTPException(413, "Agent run log limit reached.")
