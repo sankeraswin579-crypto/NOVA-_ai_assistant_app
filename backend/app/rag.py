@@ -1,3 +1,4 @@
+import heapq
 import io
 import json
 import math
@@ -15,7 +16,12 @@ from .config import settings
 from .models import Document, DocumentChunk
 
 MAX_DOCUMENT_CHARS = 500_000
-MAX_INDEXED_CHUNKS = 2_000
+# "All documents" means the most recent MAX_SELECTED_DOCUMENTS documents. Retrieval used to
+# raise an error above this number, which made document Q&A unusable once a library grew
+# past it even though the UI offers "leave empty for all".
+MAX_SELECTED_DOCUMENTS = 50
+# Chunks are scored in batches so a large knowledge base is searched instead of rejected.
+CHUNK_SCAN_BATCH = 500
 
 
 class DocumentIngestionError(ValueError):
@@ -141,13 +147,17 @@ async def retrieve_context(
     limit: int = 5,
 ) -> list[dict]:
     if document_ids:
-        docs = db.query(Document).filter(Document.id.in_(document_ids)).limit(51).all()
+        # WriterRequest.document_ids is capped at 50 by the request schema.
+        docs = db.query(Document).filter(Document.id.in_(document_ids)).all()
     else:
-        docs = db.query(Document).order_by(Document.created_at.desc()).limit(51).all()
+        docs = (
+            db.query(Document)
+            .order_by(Document.created_at.desc(), Document.id.desc())
+            .limit(MAX_SELECTED_DOCUMENTS)
+            .all()
+        )
     if not docs:
         raise DocumentIngestionError("Import a document before asking a question about it.")
-    if len(docs) > 50:
-        raise DocumentIngestionError("Select up to 50 documents for one question.")
     for document in docs:
         existing = db.query(DocumentChunk).filter(
             DocumentChunk.document_id == document.id,
@@ -158,28 +168,39 @@ async def retrieve_context(
     query = db.query(DocumentChunk).join(Document)
     if document_ids:
         query = query.filter(Document.id.in_(document_ids))
-    chunks = query.order_by(DocumentChunk.document_id, DocumentChunk.chunk_index).limit(MAX_INDEXED_CHUNKS + 1).all()
-    if len(chunks) > MAX_INDEXED_CHUNKS:
-        raise DocumentIngestionError("This knowledge base has too many indexed chunks for a single search.")
+    query = query.order_by(DocumentChunk.id)
     query_vector = (await embed_texts([question]))[0]
-    matches = []
-    for chunk in chunks:
-        if chunk.embedding_model != settings.ollama_embedding_model:
-            continue
-        try:
-            score = _cosine_similarity(query_vector, json.loads(chunk.embedding))
-        except (ValueError, TypeError):
-            continue
-        matches.append((score, chunk))
-    matches.sort(key=lambda item: item[0], reverse=True)
+
+    # Score every matching chunk in id-paged batches, keeping only the best `limit` so a
+    # large knowledge base is searched with bounded memory instead of being rejected.
+    best: list[tuple[float, int, DocumentChunk]] = []
+    scanned = 0
+    last_id = 0
+    while True:
+        batch = query.filter(DocumentChunk.id > last_id).limit(CHUNK_SCAN_BATCH).all()
+        if not batch:
+            break
+        last_id = batch[-1].id
+        for chunk in batch:
+            if chunk.embedding_model != settings.ollama_embedding_model:
+                continue
+            try:
+                score = _cosine_similarity(query_vector, json.loads(chunk.embedding))
+            except (ValueError, TypeError):
+                continue
+            scanned += 1
+            heapq.heappush(best, (score, -scanned, chunk))
+            if len(best) > limit:
+                heapq.heappop(best)
+    matches = [(score, chunk) for score, _, chunk in sorted(best, key=lambda item: item[0], reverse=True)]
     if not matches or matches[0][0] <= 0:
         raise DocumentIngestionError("No matching indexed document context was found.")
     return [
         {
-            "filename": item.document.filename,
-            "chunk": item.chunk_index + 1,
-            "content": item.content,
+            "filename": chunk.document.filename,
+            "chunk": chunk.chunk_index + 1,
+            "content": chunk.content,
             "score": score,
         }
-        for score, item in matches[:limit]
+        for score, chunk in matches
     ]
