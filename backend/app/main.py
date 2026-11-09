@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 import json
 from .config import settings
-from .database import Base, SessionLocal, engine as db_engine, get_db
+from .database import SessionLocal, ensure_schema, get_db
 from .models import AgentRun, Conversation, Message, Note, Document
 from .schemas import (
     AgentExecutionRequest, AgentRunCreate, AgentRunEventCreate, AgentRunOut,
@@ -22,7 +22,7 @@ from .assistant import (
 from .ai_engine import AIEngineError, ProviderName, engine, provider_status
 from .rag import DocumentIngestionError, extract_document_text, index_document, retrieve_context
 
-Base.metadata.create_all(bind=db_engine)
+ensure_schema()
 app = FastAPI(title="Nova AI API", version="1.0.0", description="Local-first assistant API")
 
 origins = [x.strip() for x in settings.cors_origins.split(",") if x.strip()]
