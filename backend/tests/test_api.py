@@ -144,7 +144,12 @@ def test_agent_run_history_persists_only_safe_task_logs_and_is_local(monkeypatch
     assert client.patch(f"/api/agents/runs/{run_id}", json={"status": "completed"}).status_code == 200
     assert client.post(f"/api/agents/runs/{run_id}/events", json={
         "agent": "security", "status": "completed", "message": "should not append",
-    }).status_code == 200
+    }).status_code == 409
+    approval = client.post(f"/api/agents/runs/{run_id}/events", json={
+        "agent": "developer", "status": "approval", "message": "User approved the change to src/main.py.",
+    })
+    assert approval.status_code == 200
+    assert [event["status"] for event in approval.json()["events"]] == ["completed", "approval"]
 
     assert client.post("/api/agents/runs", json={
         "task": 'API_KEY = "credential-value"', "project_name": "sample",
