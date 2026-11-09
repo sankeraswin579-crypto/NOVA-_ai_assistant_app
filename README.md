@@ -4,7 +4,7 @@ A cinematic dark-mode AI workspace with a React web UI, FastAPI backend, SQLite 
 
 ## Features
 - Chat workspace with conversation history persisted in SQLite
-- Central AI engine with Ollama, Google Gemini, OpenAI, and Groq provider routing
+- Central AI engine with Ollama, Google Gemini, OpenAI, Groq, and Anthropic provider routing, with per-call token usage where the provider reports it
 - Streaming chat and Writer actions with provider health checks and explicit local/cloud modes
 - Strict local-only default; cloud requests require an explicit mode change
 - Read-only desktop project context for asking Nova questions about selected source files
@@ -18,6 +18,14 @@ A cinematic dark-mode AI workspace with a React web UI, FastAPI backend, SQLite 
 - Health endpoint and basic backend tests
 
 Provider credentials are read only by the FastAPI backend from environment variables. They are never entered into or returned to the frontend.
+
+## Evolution repository
+
+This project also lives as an evolution repository with feature branches, database
+migrations and an additional provider. See [docs/EVOLUTION.md](docs/EVOLUTION.md) for the
+branch model and what changed, [CHANGELOG.md](CHANGELOG.md) for the details, and
+[docs/LOCAL_INTEGRATION.md](docs/LOCAL_INTEGRATION.md) to merge it into an existing local
+install.
 
 ## Architecture
 - `frontend/`: React + Vite UI

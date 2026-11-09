@@ -9,7 +9,7 @@ type Conversation = { id: number; title: string; created_at: string; messages?: 
 type Message = { role: 'user' | 'assistant'; content: string }
 type ProjectSelection = { id: string; name: string; files: string[] }
 type AutoBot = { id: string; name: string; role: string; description: string; color: string }
-type AIProvider = 'ollama' | 'gemini' | 'openai' | 'groq'
+type AIProvider = 'ollama' | 'gemini' | 'openai' | 'groq' | 'anthropic'
 type AIMode = 'local-only' | 'local-first' | 'cloud-first'
 type ProviderInfo = { provider: AIProvider; model: string; configured: boolean; local: boolean }
 const defaultBots: AutoBot[] = [
@@ -62,7 +62,7 @@ export default function App() {
   })
   const [aiProvider, setAiProvider] = useState<AIProvider | 'automatic'>(() => {
     const saved = localStorage.getItem('nova-ai-provider')
-    return saved === 'ollama' || saved === 'gemini' || saved === 'openai' || saved === 'groq'
+    return saved === 'ollama' || saved === 'gemini' || saved === 'openai' || saved === 'groq' || saved === 'anthropic'
       ? saved
       : 'automatic'
   })
@@ -104,7 +104,7 @@ export default function App() {
   const filteredNotes = useMemo(() => notes.filter(n => (n.title + ' ' + n.content).toLowerCase().includes(search.toLowerCase())), [notes, search])
   const notify = (text: string) => { setToast(text); window.setTimeout(() => setToast(''), 2400) }
   function changeAIProvider(value: string) {
-    if (value !== 'automatic' && value !== 'ollama' && value !== 'gemini' && value !== 'openai' && value !== 'groq') return
+    if (value !== 'automatic' && value !== 'ollama' && value !== 'gemini' && value !== 'openai' && value !== 'groq' && value !== 'anthropic') return
     setAiProvider(value)
     if (value !== 'automatic') {
       setAiModel(aiProviders.find(item => item.provider === value)?.model || '')
@@ -251,7 +251,7 @@ export default function App() {
     setCheckingAI(true)
     try {
       const preferred: AIProvider[] = aiProvider === 'automatic'
-        ? aiMode === 'cloud-first' ? ['openai', 'gemini', 'groq', 'ollama'] : ['ollama', 'openai', 'gemini', 'groq']
+        ? aiMode === 'cloud-first' ? ['openai', 'anthropic', 'gemini', 'groq', 'ollama'] : ['ollama', 'openai', 'anthropic', 'gemini', 'groq']
         : [aiProvider]
       const target = preferred.find(provider => aiProviders.some(item => item.provider === provider && item.configured))
       if (!target) throw new Error('No provider is configured for the current routing mode.')
